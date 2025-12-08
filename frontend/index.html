@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriSnap</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; }
+        .btn:hover { background: #0056b3; }
+        .recipe-card { border: 1px solid #eee; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .fit { border-left: 5px solid green; }
+        .no-fit { border-left: 5px solid red; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        function App() {
+            const [view, setView] = React.useState('home');
+            const [recommendations, setRecommendations] = React.useState([]);
+            const [calories, setCalories] = React.useState(1500);
+            const [prediction, setPrediction] = React.useState(null);
+            const [loading, setLoading] = React.useState(false);
+
+            const handleRecommend = async () => {
+                setLoading(true);
+                try {
+                    const response = await fetch('http://localhost:8000/recommend', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: 'user_1',
+                            current_calories: parseInt(calories),
+                            daily_goal: 2000
+                        })
+                    });
+                    const data = await response.json();
+                    setRecommendations(data.recommendations);
+                } catch (err) {
+                    console.error(err);
+                    alert("Error fetching recommendations");
+                }
+                setLoading(false);
+            };
+
+            const handleImageUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                setLoading(true);
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('http://localhost:8000/predict-food', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    setPrediction(data);
+                } catch (err) {
+                    console.error(err);
+                    alert("Error predicting image");
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="container">
+                    <h1>NutriSnap</h1>
+                    
+                    <div className="section">
+                        <h2>1. Log Meal (Image Recognition)</h2>
+                        <input type="file" accept="image/*" onChange={handleImageUpload} />
+                        {loading && <p>Processing...</p>}
+                        {prediction && (
+                            <div style={{marginTop: '10px', padding: '10px', background: '#e9ecef'}}>
+                                <h3>Detected: {prediction.food_name}</h3>
+                                <p>Confidence: {(prediction.confidence * 100).toFixed(1)}%</p>
+                                <ul>
+                                    <li>Calories: {prediction.nutrition.calories}</li>
+                                    <li>Protein: {prediction.nutrition.protein}g</li>
+                                    <li>Carbs: {prediction.nutrition.carbs}g</li>
+                                    <li>Fat: {prediction.nutrition.fat}g</li>
+                                </ul>
+                                <button className="btn" onClick={() => {
+                                    setCalories(prev => prev + prediction.nutrition.calories);
+                                    setPrediction(null);
+                                    alert("Meal added to daily intake!");
+                                }}>Add to Daily Intake</button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="section">
+                        <h2>2. Get Recommendations</h2>
+                        <p>Current Daily Intake: {calories} / 2000 kcal</p>
+                        <p>Remaining: {2000 - calories} kcal</p>
+                        
+                        <div style={{margin: '10px 0'}}>
+                            <label>Update Intake Manually: </label>
+                            <input 
+                                type="number" 
+                                value={calories} 
+                                onChange={(e) => setCalories(e.target.value)} 
+                            />
+                        </div>
+
+                        <button className="btn" onClick={handleRecommend} disabled={loading}>
+                            {loading ? 'Loading...' : 'Get Goal-Aware Recipes'}
+                        </button>
+
+                        <div className="results">
+                            {recommendations.map((rec) => (
+                                <div key={rec.recipe_id} className={`recipe-card ${rec.fits_budget ? 'fit' : 'no-fit'}`}>
+                                    <h3>{rec.recipe_name}</h3>
+                                    <p>Calories: {rec.calories} | Protein: {rec.protein}g | Cuisine: {rec.cuisine}</p>
+                                    <small>{rec.fits_budget ? "✅ Fits Budget" : "⚠️ Over Budget"}</small>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
