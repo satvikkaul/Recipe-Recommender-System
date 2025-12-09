@@ -21,9 +21,9 @@ app.add_middleware(
 
 # Initialize Engines
 # Paths need to be correct relative to where we run the server
-RECOMMENDER_PATH = "models/saved/recommender_index"
+RECOMMENDER_PATH = "models/saved/recommender_model_pytorch.pth"
 RECIPES_CSV = "data/food.com-interaction/RAW_recipes.csv"
-IMAGE_MODEL_PATH = "models/saved/image_model"
+IMAGE_MODEL_PATH = "models/saved/image_model_pytorch.pth"
 
 # Dynamically load class names from the dataset directory if available
 # Otherwise fall back to a default list (or load from a saved metadata file)

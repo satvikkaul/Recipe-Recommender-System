@@ -1,156 +1,244 @@
-import os
-import pprint
-import tempfile
-from typing import Dict, Text
-
-import numpy as np
+import torch
+import torch.nn as nn
 import pandas as pd
-import tensorflow as tf
-import tensorflow_recommenders as tfrs
+import numpy as np
+import ast
+from collections import Counter
+from torch.utils.data import Dataset, DataLoader
 
-# Define the Recommender Model
-class TwoTowerModel(tfrs.Model):
-    def __init__(self, user_model, item_model, task):
-        super().__init__()
-        self.user_model = user_model
-        self.item_model = item_model
-        self.task = task
+# -------------------------------------------------------------------
+# Preprocessing Utilities
+# -------------------------------------------------------------------
+def parse_list_column(val):
+    """Safely parses stringified lists like \"['a', 'b']\" or returns empty list."""
+    try:
+        return ast.literal_eval(val)
+    except:
+        return []
 
-    def compute_loss(self, features: Dict[Text, tf.Tensor], training=False) -> tf.Tensor:
-        # We pick out the user features and pass them into the user model.
-        user_embeddings = self.user_model(features["user_id"])
-        # And pick out the item features and pass them into the item model,
-        # getting embeddings which will be used to compute the prediction.
-        recipe_embeddings = self.item_model(features["recipe_id"])
-
-        # The task computes the loss and the metrics.
-        return self.task(user_embeddings, recipe_embeddings)
-
-class UserModel(tf.keras.Model):
-    def __init__(self, unique_user_ids):
-        super().__init__()
-        self.user_embedding = tf.keras.Sequential([
-            tf.keras.layers.StringLookup(
-                vocabulary=unique_user_ids, mask_token=None),
-            tf.keras.layers.Embedding(len(unique_user_ids) + 1, 32)
-        ])
-
-    def call(self, inputs):
-        return self.user_embedding(inputs)
-
-class RecipeModel(tf.keras.Model):
-    def __init__(self, unique_recipe_ids):
-        super().__init__()
-        self.recipe_embedding = tf.keras.Sequential([
-            tf.keras.layers.StringLookup(
-                vocabulary=unique_recipe_ids, mask_token=None),
-            tf.keras.layers.Embedding(len(unique_recipe_ids) + 1, 32)
-        ])
-        # In a more advanced version, we would concatenate this with 
-        # normalized nutritional features here. For this baseline Two-Tower,
-        # we focus on the ID embedding.
-        
-    def call(self, inputs):
-        return self.recipe_embedding(inputs)
-
-def build_model(users_csv, recipes_csv, interactions_csv):
-    # Load data
-    users = pd.read_csv(users_csv)
-    recipes = pd.read_csv(recipes_csv)
-    interactions = pd.read_csv(interactions_csv)
-
-    # Preprocessing for Real Data compatibility
-    if "id" in recipes.columns and "recipe_id" not in recipes.columns:
-        recipes = recipes.rename(columns={"id": "recipe_id"})
-        
-    # Ensure ID columns are treated as strings
-    recipes["recipe_id"] = recipes["recipe_id"].astype(str)
-    interactions["recipe_id"] = interactions["recipe_id"].astype(str)
-    interactions["user_id"] = interactions["user_id"].astype(str)
-    
-    # Get unique vocabularies
-    unique_user_ids = users["user_id"].unique().astype(str)
-    unique_recipe_ids = recipes["recipe_id"].unique().astype(str)
-
-    # Create datasets
-    # Only keep the columns we need to avoid issues with other columns (like mixed types in reviews)
-    interactions_subset = interactions[["user_id", "recipe_id"]]
-    interactions_ds = tf.data.Dataset.from_tensor_slices(dict(interactions_subset))
-    interactions_ds = interactions_ds.map(lambda x: {
-        "user_id": tf.cast(x["user_id"], tf.string),
-        "recipe_id": tf.cast(x["recipe_id"], tf.string),
-    })
-    
-    
-    # Same precaution for recipes, we only need recipe_id for the dataset map below
-    recipes_subset = recipes[["recipe_id"]]
-    recipes_ds = tf.data.Dataset.from_tensor_slices(dict(recipes_subset))
-    recipes_ds = recipes_ds.map(lambda x: tf.cast(x["recipe_id"], tf.string))
-    
-    # Shuffle and batch
-    # Shuffle and batch
-    # Optimized for speed: larger batch size (8192) and smaller shuffle buffer (10000)
-    cached_train = interactions_ds.shuffle(10_000).batch(8192).cache()
-    cached_recipes = recipes_ds.batch(1024).cache()
-
-    # Define Towers
-    user_model = UserModel(unique_user_ids)
-    item_model = RecipeModel(unique_recipe_ids)
-    
-    # Define Task (Retrieval)
-    metrics = tfrs.metrics.FactorizedTopK(
-        candidates=cached_recipes.map(item_model)
-    )
-    
-    task = tfrs.tasks.Retrieval(
-        metrics=metrics
-    )
-
-    # Instantiate Model
-    model = TwoTowerModel(user_model, item_model, task)
-    model.compile(optimizer=tf.keras.optimizers.Adagrad(learning_rate=0.1))
-    
-    return model, cached_train
-
-def save_model_index(model, recipes_csv, export_path):
+def get_ingredient_vocab(recipes_df, top_k=2000):
     """
-    Saves a BruteForce layer that can take a user_id and return top K recommendations.
-    This is what we will serve in the API.
+    Builds a vocabulary of the top_k most frequent ingredients.
+    Returns:
+        vocab (dict): {ingredient_name: id}
+        unk_idx (int): Index for unknown ingredients
     """
-    recipes = pd.read_csv(recipes_csv)
-    
-    # Preprocessing for Real Data compatibility
-    if "id" in recipes.columns and "recipe_id" not in recipes.columns:
-        recipes = recipes.rename(columns={"id": "recipe_id"})
+    all_ingredients = []
+    for ing_list in recipes_df['ingredients']:
+        # ing_list is already parsed
+        all_ingredients.extend(ing_list)
         
-    unique_recipe_ids = recipes["recipe_id"].unique().astype(str)
+    counts = Counter(all_ingredients)
+    common = counts.most_common(top_k)
     
-    # We need to recreate the item model structure to pass it to the BruteForce layer
-    # or just use the trained model's item_model if accessible.
+    # 0 is padding, 1 is existing...
+    # Let's map directly:
+    vocab = {ing: i+1 for i, (ing, _) in enumerate(common)} # 1-based index
+    unk_idx = 0 # 0 for unknown/padding
     
-    # Create the index
-    index = tfrs.layers.factorized_top_k.BruteForce(model.user_model)
-    
-    # Create dataset of candidates for the index
-    # We need (identifier, embedding) pairs or just embeddings if we track identifiers separately
-    # But TFRS BruteForce.index_from_dataset usually takes a dataset of candidate embeddings
-    # AND optionally candidate identifiers.
-    
-    recipes_ds = tf.data.Dataset.from_tensor_slices(unique_recipe_ids)
-    
-    # We zip (recipe_id, recipe_embedding)
-    # Note: model.item_model takes recipe_id -> embedding
-    
-    index.index_from_dataset(
-        tf.data.Dataset.zip((recipes_ds.batch(100), recipes_ds.batch(100).map(model.item_model)))
-    )
-    
-    # Run once to build the layer and trace the graph
-    _ = index(tf.constant(["user_1"]))
+    print(f"Vocab built with {len(vocab)} ingredients (Top {top_k}).")
+    return vocab, unk_idx
 
-    # Save
-    tf.saved_model.save(index, export_path)
-    print(f"Model index saved to {export_path}")
+# -------------------------------------------------------------------
+# Datasets
+# -------------------------------------------------------------------
+class RecipeDataset(Dataset):
+    """
+    Dataset for serving Recipe Features (ID, Ingredients, Nutrition).
+    """
+    def __init__(self, recipes_csv, vocab=None):
+        self.recipes = pd.read_csv(recipes_csv)
+        
+        # 1. ID Handling
+        if "id" in self.recipes.columns and "recipe_id" not in self.recipes.columns:
+            self.recipes = self.recipes.rename(columns={"id": "recipe_id"})
+        self.recipes["recipe_id"] = self.recipes["recipe_id"].astype(str)
+        self.unique_recipe_ids = self.recipes["recipe_id"].unique()
+        
+        # 2. Parsing Content
+        print("Parsing ingredients and nutrition...")
+        self.recipes['ingredients'] = self.recipes['ingredients'].apply(parse_list_column)
+        self.recipes['nutrition'] = self.recipes['nutrition'].apply(parse_list_column)
+        
+        # 3. Build Vocab if not provided
+        if vocab is None:
+            self.vocab, self.unk_idx = get_ingredient_vocab(self.recipes)
+        else:
+            self.vocab = vocab
+            self.unk_idx = 0
+            
+        # 4. Pre-process features into tensors to save time during training
+        self.feature_map = {}
+        
+        for idx, row in self.recipes.iterrows():
+            rid = row['recipe_id']
+            
+            # Ingredients -> Indices
+            ing_indices = [self.vocab.get(ing, self.unk_idx) for ing in row['ingredients']]
+            if not ing_indices:
+                ing_indices = [self.unk_idx]
+            
+            # Nutrition -> Float Tensor (Normalize roughly)
+            # Standard format: [Cal, Fat, Sugar, Sodium, Protein, SatFat, Carbs]
+            # Simple scaling to keep them somewhat small (e.g. div max or standard)
+            # For simplicity & robustness: log1p or simple division
+            nut = np.array(row['nutrition'], dtype=np.float32)
+            # Avoid nan
+            nut = np.nan_to_num(nut)
+            # Simple manual normalization based on typical food ranges
+            # Cals/1000, Fat/100, Sugar/100, Sod/1000, Prot/100, SatFat/100, Carb/100
+            scale = np.array([1000, 100, 100, 1000, 100, 100, 100], dtype=np.float32)
+            # Safety check for lengths
+            if len(nut) == 7:
+                nut = nut / scale
+            else:
+                nut = np.zeros(7, dtype=np.float32)
+                
+            self.feature_map[rid] = {
+                'ingredients': torch.tensor(ing_indices, dtype=torch.long),
+                'nutrition': torch.tensor(nut, dtype=torch.float32)
+            }
 
-if __name__ == "__main__":
-    pass
+        # ID Mappings
+        self.recipe_to_idx = {rid: i for i, rid in enumerate(self.unique_recipe_ids)}
+        self.idx_to_recipe = {i: rid for rid, i in self.recipe_to_idx.items()}
+        
+    def __len__(self):
+        return len(self.unique_recipe_ids)
+        
+    def __getitem__(self, idx):
+        # Return ID index 
+        # (Content features accessed via lookups in Collate or Model if needed, 
+        # but standard pattern is to return everything. Let's return everything.)
+        rid = self.idx_to_recipe[idx]
+        feats = self.feature_map[rid]
+        
+        return {
+            'recipe_idx': torch.tensor(idx, dtype=torch.long),
+            'ingredients': feats['ingredients'], 
+            'nutrition': feats['nutrition']
+        }
+
+class InteractionDataset(Dataset):
+    def __init__(self, interactions_csv, users_csv, recipe_dataset):
+        self.interactions = pd.read_csv(interactions_csv)
+        self.recipe_dataset = recipe_dataset
+        
+        self.interactions["user_id"] = self.interactions["user_id"].astype(str)
+        self.interactions["recipe_id"] = self.interactions["recipe_id"].astype(str)
+        
+        # Filter
+        known_recipes = set(self.recipe_dataset.recipe_to_idx.keys())
+        self.interactions = self.interactions[self.interactions["recipe_id"].isin(known_recipes)]
+        
+        # User Mappings
+        self.unique_user_ids = self.interactions["user_id"].unique()
+        self.user_to_idx = {uid: i for i, uid in enumerate(self.unique_user_ids)}
+        self.idx_to_user = {i: uid for uid, i in self.user_to_idx.items()}
+        
+    def __len__(self):
+        return len(self.interactions)
+        
+    def __getitem__(self, idx):
+        row = self.interactions.iloc[idx]
+        uid = row["user_id"]
+        rid = row["recipe_id"]
+        
+        user_idx = self.user_to_idx[uid]
+        # Get recipe features directly from the recipe_dataset using the ID
+        recipe_mem_idx = self.recipe_dataset.recipe_to_idx[rid]
+        recipe_data = self.recipe_dataset[recipe_mem_idx]
+        
+        return {
+            'user_idx': torch.tensor(user_idx, dtype=torch.long),
+            'recipe_idx': recipe_data['recipe_idx'],
+            'ingredients': recipe_data['ingredients'],
+            'nutrition': recipe_data['nutrition']
+        }
+
+def collate_fn(batch):
+    """
+    Custom collate because ingredients are variable length lists.
+    We need to pad them.
+    """
+    user_idxs = torch.stack([x['user_idx'] for x in batch])
+    recipe_idxs = torch.stack([x['recipe_idx'] for x in batch])
+    nutrition = torch.stack([x['nutrition'] for x in batch])
+    
+    # Pad ingredients (EmbeddingBag can take offsets, or we can just pad with 0)
+    # Using EmbeddingBag with offsets is most efficient, but padding is easier to debug.
+    # Let's use padding.
+    ingredients_list = [x['ingredients'] for x in batch]
+    max_len = max([len(i) for i in ingredients_list])
+    
+    padded_ingredients = torch.zeros((len(batch), max_len), dtype=torch.long)
+    for i, seq in enumerate(ingredients_list):
+        end = len(seq)
+        padded_ingredients[i, :end] = seq
+        
+    return {
+        'user_idx': user_idxs,
+        'recipe_idx': recipe_idxs,
+        'ingredients': padded_ingredients,
+        'nutrition': nutrition
+    }
+
+# -------------------------------------------------------------------
+# Model with Content Features
+# -------------------------------------------------------------------
+class RecipeTower(nn.Module):
+    def __init__(self, num_recipes, vocab_size, embedding_dim=32):
+        super().__init__()
+        # 1. ID Embedding
+        self.id_embedding = nn.Embedding(num_recipes, embedding_dim)
+        
+        # 2. Ingredients Embedding (Bag of Words style)
+        # vocab_size+1 because 0 is unk/padding
+        self.ingredient_embedding = nn.EmbeddingBag(vocab_size + 1, embedding_dim, mode='mean')
+        
+        # 3. Nutrition Dense
+        self.nutrition_dense = nn.Linear(7, embedding_dim)
+        
+        # 4. Fusion
+        # Concatenate 3 vectors -> Dense -> Output
+        self.fusion = nn.Sequential(
+            nn.Linear(embedding_dim * 3, embedding_dim),
+            nn.ReLU(),
+            nn.Linear(embedding_dim, embedding_dim) # Project back to common space
+        )
+        
+    def forward(self, recipe_indices, ingredient_indices, nutrition_tensor):
+        id_emb = self.id_embedding(recipe_indices) # [B, Dim]
+        
+        # EmbeddingBag expects 2D input for padding mode if separate? 
+        # Actually EmbeddingBag(input, offsets) is 1D. 
+        # EmbeddingBag(input) where input is 2D handles padding if padding_idx is set.
+        # But we used mode='mean' and 0 is unk. 
+        ing_emb = self.ingredient_embedding(ingredient_indices) # [B, Dim]
+        
+        nut_feat = self.nutrition_dense(nutrition_tensor) # [B, Dim]
+        
+        # Concatenate
+        combined = torch.cat([id_emb, ing_emb, nut_feat], dim=1) # [B, Dim*3]
+        return self.fusion(combined)
+
+class TwoTowerModel(nn.Module):
+    def __init__(self, num_users, num_recipes, vocab_size, embedding_dim=32):
+        super().__init__()
+        # User Tower (Simple ID for now, could add history LSTM later)
+        self.user_embedding = nn.Embedding(num_users, embedding_dim)
+        
+        # Recipe Tower (Complex)
+        self.recipe_tower = RecipeTower(num_recipes, vocab_size, embedding_dim)
+        
+    def forward(self, user_indices, recipe_indices, ingredients, nutrition):
+        user_emb = self.user_embedding(user_indices)
+        recipe_emb = self.recipe_tower(recipe_indices, ingredients, nutrition)
+        return user_emb, recipe_emb
+    
+    def get_user_embedding(self, user_indices):
+        return self.user_embedding(user_indices)
+        
+    # Helper to get recipe embedding from raw features
+    def get_recipe_embedding(self, recipe_indices, ingredients, nutrition):
+        return self.recipe_tower(recipe_indices, ingredients, nutrition)
