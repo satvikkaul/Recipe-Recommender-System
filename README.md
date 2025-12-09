@@ -1,5 +1,3 @@
-Whats upppppppp bro
-
 # NutriSnap - AI Nutrition Assistant
 
 NutriSnap is an intelligent nutrition assistant that combines computer vision for food recognition with a personalized recipe recommender system.
