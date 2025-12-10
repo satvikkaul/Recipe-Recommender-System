@@ -72,20 +72,21 @@ class ImageEngine:
         }
 
 class RecommenderEngine:
-    def __init__(self, model_path, recipes_csv):
+    def __init__(self, model_path, recipes_csv, interactions_csv=None, max_history=15):
         print(f"Loading Recommender from {model_path}...")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+        self.max_history = max_history
+
         # 1. Load Data
         self.recipes_df = pd.read_csv(recipes_csv)
         if "id" in self.recipes_df.columns and "recipe_id" not in self.recipes_df.columns:
             self.recipes_df = self.recipes_df.rename(columns={"id": "recipe_id"})
         self.recipes_df['recipe_id'] = self.recipes_df['recipe_id'].astype(str)
-        
+
         # Parse content columns
         self.recipes_df['ingredients'] = self.recipes_df['ingredients'].apply(parse_list_column)
         self.recipes_df['nutrition'] = self.recipes_df['nutrition'].apply(parse_list_column)
-        
+
         # Simple calorie parse (first element) for filtering
         def get_calories(row):
             try:
@@ -102,7 +103,7 @@ class RecommenderEngine:
         self.idx_to_recipe = {v: k for k, v in self.recipe_to_idx.items()}
         self.vocab = checkpoint['vocab']
         embedding_dim = checkpoint['embedding_dim']
-        
+
         # 3. Build Model
         self.model = TwoTowerModel(
             num_users=len(self.user_to_idx),
@@ -113,12 +114,22 @@ class RecommenderEngine:
         self.model.load_state_dict(state_dict)
         self.model = self.model.to(self.device)
         self.model.eval()
-        
+
         # 4. Precompute Item Embeddings
         # This is strictly more complex now because we need to feed content features
         # We process all recipes into tensors once
         print("Precomputing recipe embeddings (content-aware)...")
         self.item_embeddings = self._precompute_all_items()
+
+        # 5. Load User Interaction History (optional but recommended)
+        self.user_history = {}
+        if interactions_csv and os.path.exists(interactions_csv):
+            print("Loading user interaction history...")
+            self._load_user_history(interactions_csv)
+            print(f"Loaded history for {len(self.user_history)} users.")
+        else:
+            print("No interaction history provided. User embeddings will be ID-only.")
+
         print("Recommender loaded.")
 
     def _precompute_all_items(self):
@@ -201,36 +212,102 @@ class RecommenderEngine:
         
         return torch.cat(final_embeddings, dim=0).to(self.device) # [N, Dim]
 
+    def _load_user_history(self, interactions_csv):
+        """Load user interaction history from interactions CSV"""
+        interactions_df = pd.read_csv(interactions_csv)
+        interactions_df['user_id'] = interactions_df['user_id'].astype(str)
+        interactions_df['recipe_id'] = interactions_df['recipe_id'].astype(str)
+
+        # Filter to known recipes only
+        known_recipes = set(self.recipe_to_idx.keys())
+        interactions_df = interactions_df[interactions_df['recipe_id'].isin(known_recipes)]
+
+        # Sort by date if available
+        if 'date' in interactions_df.columns:
+            interactions_df = interactions_df.sort_values('date')
+
+        # Group by user and collect most recent interactions
+        for user_id, group in interactions_df.groupby('user_id'):
+            if user_id in self.user_to_idx:
+                # Get most recent max_history recipes
+                recipe_ids = group['recipe_id'].tail(self.max_history).tolist()
+                # Store as internal indices
+                recipe_indices = [self.recipe_to_idx[rid] for rid in recipe_ids if rid in self.recipe_to_idx]
+                self.user_history[user_id] = recipe_indices
+
+    def _get_user_history_embeddings(self, user_id):
+        """Get history embeddings for a user"""
+        if user_id not in self.user_history or len(self.user_history[user_id]) == 0:
+            return None, None
+
+        # Get recipe indices from history
+        history_indices = self.user_history[user_id]
+
+        # Get embeddings from precomputed item embeddings
+        history_embs = self.item_embeddings[history_indices]  # [H, D]
+
+        # Add batch dimension and create mask
+        history_embs = history_embs.unsqueeze(0)  # [1, H, D]
+        history_mask = torch.ones(1, len(history_indices), dtype=torch.bool, device=self.device)
+
+        return history_embs, history_mask
+
     def recommend(self, user_id, current_calories, daily_goal=2000, top_k=10):
         if user_id not in self.user_to_idx:
             print(f"Unknown user {user_id}")
             return []
-            
+
         user_idx = self.user_to_idx[user_id]
         user_tensor = torch.tensor([user_idx], device=self.device)
-        
+
+        # Get user history embeddings
+        history_embs, history_mask = self._get_user_history_embeddings(user_id)
+
         with torch.no_grad():
-            user_emb = self.model.get_user_embedding(user_tensor)
-            
+            user_emb = self.model.get_user_embedding(user_tensor, history_embs, history_mask)
+
+        # Get base scores from model
         scores = torch.matmul(user_emb, self.item_embeddings.T).squeeze(0)
-        top_indices = torch.topk(scores, k=top_k*5).indices.cpu().numpy()
         
-        recommendations = []
+        # Calculate remaining calorie budget
         remaining_budget = daily_goal - current_calories
         
+        # GOAL-AWARE RE-RANKING: Boost scores for items that fit budget
+        # This implements the proposal requirement: "recipes that fit remaining daily budget"
+        for idx in range(len(scores)):
+            recipe_id = self.idx_to_recipe[idx]
+            row = self.recipes_df[self.recipes_df['recipe_id'] == recipe_id]
+            
+            if not row.empty:
+                calories = row.iloc[0]['calories']
+                
+                # Calculate budget fitness score (0 to 1)
+                # Perfect score when calories match budget exactly
+                # Decreases as difference increases
+                if remaining_budget > 0:
+                    budget_fit = max(0, 1 - abs(calories - remaining_budget) / max(remaining_budget, 500))
+                    # Boost the score by weighted budget fitness (0.3 weight for goal-awareness)
+                    scores[idx] = scores[idx] + 0.3 * budget_fit
+        
+        # Get top candidates after re-ranking
+        top_indices = torch.topk(scores, k=top_k*5).indices.cpu().numpy()
+
+        recommendations = []
+
         # Map internal indices back to data
         for idx in top_indices:
             recipe_id = self.idx_to_recipe[idx]
-            
+
             # Lookup metadata
             row = self.recipes_df[self.recipes_df['recipe_id'] == recipe_id]
             if row.empty: continue
-            
+
             info = row.iloc[0].to_dict()
             info['fits_budget'] = info['calories'] <= (remaining_budget + 100)
-            
+            info['score'] = float(scores[idx].cpu())  # Add score for debugging
+
             recommendations.append(info)
             if len(recommendations) >= top_k:
                 break
-                
+
         return recommendations

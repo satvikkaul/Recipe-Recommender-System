@@ -23,6 +23,7 @@ app.add_middleware(
 # Paths need to be correct relative to where we run the server
 RECOMMENDER_PATH = "models/saved/recommender_model_pytorch.pth"
 RECIPES_CSV = "data/food.com-interaction/RAW_recipes.csv"
+INTERACTIONS_CSV = "data/food.com-interaction/RAW_interactions.csv"
 IMAGE_MODEL_PATH = "models/saved/image_model_pytorch.pth"
 
 # Dynamically load class names from the dataset directory if available
@@ -42,7 +43,11 @@ image_engine = None
 def load_models():
     global recommender_engine, image_engine
     if os.path.exists(RECOMMENDER_PATH):
-        recommender_engine = RecommenderEngine(RECOMMENDER_PATH, RECIPES_CSV)
+        recommender_engine = RecommenderEngine(
+            RECOMMENDER_PATH,
+            RECIPES_CSV,
+            interactions_csv=INTERACTIONS_CSV
+        )
     else:
         print(f"Warning: {RECOMMENDER_PATH} not found.")
         
