@@ -6,3 +6,5 @@ data/food-101/
 venv/
 .env
 data/food.com-interaction/
+
+.claude/

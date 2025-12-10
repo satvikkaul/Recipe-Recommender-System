@@ -1,0 +1,49 @@
+{
+    "timestamp": "2025-12-10T02:19:24.922415",
+    "model_path": "models/saved/recommender_model_pytorch.pth",
+    "dataset_statistics": {
+        "total_recipes": 231637,
+        "total_users": 125647,
+        "train_interactions": 905893,
+        "test_interactions": 226474,
+        "ingredient_vocab_size": 2000
+    },
+    "model_architecture": {
+        "embedding_dim": 64,
+        "total_parameters": 23036224,
+        "trainable_parameters": 23036224,
+        "model_type": "Two-Tower with History"
+    },
+    "hyperparameters": {
+        "batch_size": 512,
+        "learning_rate": 0.001,
+        "weight_decay": 0.01,
+        "optimizer": "AdamW",
+        "max_epochs": 15,
+        "max_history_length": 15,
+        "train_test_split": "80/19"
+    },
+    "best_epoch_results": {
+        "epoch": 9,
+        "training_loss": 6.214910724338165,
+        "training_metrics": {
+            "precision_10": 0.003393300128364041,
+            "recall_10": 0.033933000552788965,
+            "ndcg_10": 0.017994300336287603,
+            "mrr_10": 0.013212159163934194
+        },
+        "validation_metrics": {
+            "precision_10": 0.0021171875461004673,
+            "recall_10": 0.021171875,
+            "ndcg_10": 0.009599715238437057,
+            "mrr_10": 0.0061799976555630565,
+            "catalog_coverage": 0.014997604009722108
+        }
+    },
+    "training_performance": {
+        "total_training_time_seconds": 10251.13,
+        "device": "cuda",
+        "mixed_precision_enabled": true,
+        "gradient_clipping_enabled": true
+    }
+}

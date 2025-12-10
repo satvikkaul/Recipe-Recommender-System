@@ -7,6 +7,8 @@ import numpy as np
 import os
 import sys
 from tqdm import tqdm
+import json
+from datetime import datetime
 
 sys.path.append(os.getcwd())
 # Import new components (collate_fn)
@@ -61,12 +63,24 @@ def calculate_metrics(k, scores, labels):
     idcg = 1.0
     ndcg_k = dcg / idcg
     
-    return precision_k.mean().item(), recall_k.mean().item(), ndcg_k.mean().item()
+    # 4. MRR@K
+    # For a list of recommendations, MRR is 1/(rank+1) of the first relevant item.
+    # Since we only have 1 true item, it's just the reciprocal of its position + 1
+    # We can find the index of the hit
+    # hits is [Batch, K] with 1s and 0s
+    # We need index of the 1
+    
+    # arange: [0, 1, 2, ..., K-1]
+    rank_indices = torch.arange(1, k + 1).float().to(scores.device).view(1, -1) # [1, K]
+    # mrr_per_user = sum( hits / rank ) -> valid because only one 1 exists per row
+    mrr_k = (hits / rank_indices).sum(dim=1)
+    
+    return precision_k.mean().item(), recall_k.mean().item(), ndcg_k.mean().item(), mrr_k.mean().item()
 
 def train_one_epoch(model, loader, optimizer, device, epoch, num_epochs, scaler=None, use_amp=False):
     model.train()
     running_loss = 0.0
-    metrics = {"p10": 0, "r10": 0, "n10": 0}
+    metrics = {"p10": 0, "r10": 0, "n10": 0, "mrr10": 0}
     count = 0
 
     loop = tqdm(loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=True)
@@ -132,10 +146,11 @@ def train_one_epoch(model, loader, optimizer, device, epoch, num_epochs, scaler=
         
         # Metrics (approximate on batch)
         if batch['user_idx'].size(0) > 10: # Only calc if batch big enough
-            p, r, n = calculate_metrics(10, scores, labels)
+            p, r, n, m = calculate_metrics(10, scores, labels)
             metrics["p10"] += p
             metrics["r10"] += r
             metrics["n10"] += n
+            metrics["mrr10"] += m
             count += 1
         
         loop.set_postfix(loss=loss.item(), ndcg=metrics["n10"]/(count+1e-6))
@@ -188,8 +203,8 @@ def main():
         batch_size=BATCH_SIZE,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=4,      # Parallel data loading (20-30% speedup)
-        pin_memory=True     # Faster GPU transfer
+        num_workers=0,      # Set to 0 to fix Windows hang (avoid pickling large dataset)
+        pin_memory=True
     )
 
     test_loader = DataLoader(
@@ -197,7 +212,7 @@ def main():
         batch_size=BATCH_SIZE,
         shuffle=False,      # Don't shuffle test data
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=0,
         pin_memory=True
     )
 
@@ -244,10 +259,17 @@ def main():
     print(f"Mixed Precision (AMP): {'Enabled' if USE_AMP and device.type == 'cuda' else 'Disabled'}")
     print(f"Max History Length: {MAX_HISTORY}")
     print(f"Gradient Clipping: Enabled (max_norm=1.0)")
-    print(f"DataLoader Workers: 4")
+    print(f"DataLoader Workers: 0 (Windows Optimization)")
     print(f"{'='*60}\n")
 
     best_ndcg = 0.0
+    best_epoch = 0
+    best_train_mets = None
+    best_val_mets = None
+    
+    # Track training start time
+    import time
+    training_start_time = time.time()
 
     for epoch in range(EPOCHS):
         # Train
@@ -258,8 +280,9 @@ def main():
 
         # Validate on test set (quick validation on subset)
         model.eval()
-        val_mets = {"p10": 0, "r10": 0, "n10": 0}
+        val_mets = {"p10": 0, "r10": 0, "n10": 0, "mrr10": 0}
         val_count = 0
+        unique_recommended_items = set()
         criterion = nn.CrossEntropyLoss()
 
         with torch.no_grad():
@@ -284,19 +307,41 @@ def main():
 
                 scores = torch.matmul(user_emb, recipe_emb.T)
                 labels = torch.arange(scores.size(0)).to(device)
+                
+                # Get top K indices for coverage
+                _, top_k_indices = torch.topk(scores, 10, dim=1)
+                
+                # We need to map batch indices back to original recipe IDs to be accurate?
+                # The scores matrix is (Batch Users x Batch Recipes).
+                # top_k_indices gives indices into the *current batch of recipes*.
+                # We need the global IDs of those recipes to calculate global coverage.
+                # 'recipe_idx' variable holds the global recipe indices for this batch.
+                
+                # recipe_idx: [Batch] - Global indices of the recipes in this batch
+                # top_k_indices: [Batch, K] - Indices into 'recipe_idx'
+                
+                batch_recipe_indices = recipe_idx[top_k_indices] # [Batch, K]
+                unique_recommended_items.update(batch_recipe_indices.cpu().numpy().flatten())
 
                 if batch['user_idx'].size(0) > 10:
-                    p, r, n = calculate_metrics(10, scores, labels)
+                    p, r, n, m = calculate_metrics(10, scores, labels)
                     val_mets["p10"] += p
                     val_mets["r10"] += r
                     val_mets["n10"] += n
+                    val_mets["mrr10"] += m
                     val_count += 1
 
         avg_val_mets = {k: v/max(val_count, 1) for k, v in val_mets.items()}
+        
+        # Calculate Coverage
+        # Fraction of TOTAL recipes recommended
+        catalog_coverage = len(unique_recommended_items) / len(recipe_ds)
+        avg_val_mets["coverage"] = catalog_coverage
 
         print(f"\nEpoch {epoch+1}/{EPOCHS} Summary:")
         print(f"  Train Loss: {train_loss:.4f} | Train NDCG@10: {train_mets['n10']:.4f}")
         print(f"  Val NDCG@10: {avg_val_mets['n10']:.4f} | Val Recall@10: {avg_val_mets['r10']:.4f}")
+        print(f"  Val MRR@10:  {avg_val_mets['mrr10']:.4f} | Val Coverage: {avg_val_mets['coverage']:.2%}")
 
         # Update learning rate
         scheduler.step(avg_val_mets['n10'])
@@ -304,6 +349,10 @@ def main():
         # Save best model
         if avg_val_mets['n10'] > best_ndcg:
             best_ndcg = avg_val_mets['n10']
+            best_epoch = epoch + 1
+            best_train_mets = train_mets.copy()
+            best_val_mets = avg_val_mets.copy()
+            best_train_loss = train_loss
             print(f"  → New best NDCG@10! Saving model...")
             os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
             save_dict = {
@@ -319,8 +368,73 @@ def main():
 
         print(f"{'='*60}\n")
 
+    training_end_time = time.time()
+    total_training_time = training_end_time - training_start_time
+
     print(f"\nTraining complete! Best validation NDCG@10: {best_ndcg:.4f}")
     print(f"Model saved to {MODEL_SAVE_PATH}")
+    
+    # Save comprehensive final training results to JSON
+    final_results = {
+        "timestamp": datetime.now().isoformat(),
+        "model_path": MODEL_SAVE_PATH,
+        
+        "dataset_statistics": {
+            "total_recipes": len(recipe_ds),
+            "total_users": len(train_ds.unique_user_ids),
+            "train_interactions": len(train_ds),
+            "test_interactions": len(test_ds),
+            "ingredient_vocab_size": len(recipe_ds.vocab)
+        },
+        
+        "model_architecture": {
+            "embedding_dim": EMBEDDING_DIM,
+            "total_parameters": total_params,
+            "trainable_parameters": trainable_params,
+            "model_type": "Two-Tower with History"
+        },
+        
+        "hyperparameters": {
+            "batch_size": BATCH_SIZE,
+            "learning_rate": LEARNING_RATE,
+            "weight_decay": 0.01,
+            "optimizer": "AdamW",
+            "max_epochs": EPOCHS,
+            "max_history_length": MAX_HISTORY,
+            "train_test_split": f"{int(TRAIN_RATIO*100)}/{int((1-TRAIN_RATIO)*100)}"
+        },
+        
+        "best_epoch_results": {
+            "epoch": best_epoch,
+            "training_loss": float(best_train_loss) if best_train_mets else None,
+            "training_metrics": {
+                "precision_10": float(best_train_mets['p10']) if best_train_mets else None,
+                "recall_10": float(best_train_mets['r10']) if best_train_mets else None,
+                "ndcg_10": float(best_train_mets['n10']) if best_train_mets else None,
+                "mrr_10": float(best_train_mets['mrr10']) if best_train_mets else None
+            },
+            "validation_metrics": {
+                "precision_10": float(best_val_mets['p10']) if best_val_mets else None,
+                "recall_10": float(best_val_mets['r10']) if best_val_mets else None,
+                "ndcg_10": float(best_val_mets['n10']) if best_val_mets else None,
+                "mrr_10": float(best_val_mets['mrr10']) if best_val_mets else None,
+                "catalog_coverage": float(best_val_mets['coverage']) if best_val_mets else None
+            }
+        },
+        
+        "training_performance": {
+            "total_training_time_seconds": round(total_training_time, 2),
+            "device": str(device),
+            "mixed_precision_enabled": bool(USE_AMP and device.type == 'cuda'),
+            "gradient_clipping_enabled": True
+        }
+    }
+    
+    results_path = "models/saved/recommender_training_results.json"
+    os.makedirs(os.path.dirname(results_path), exist_ok=True)
+    with open(results_path, 'w') as f:
+        json.dump(final_results, f, indent=4)
+    print(f"Training results saved to {results_path}")
 
 if __name__ == "__main__":
     main()

@@ -7,6 +7,8 @@ import ast
 import math
 import time
 from datetime import datetime
+import json
+import os
 
 # -------------------------------------------------------------------
 # Configuration
@@ -22,7 +24,7 @@ TOP_K = 10
 # -------------------------------------------------------------------
 def calculate_metrics(recommended_ids, true_id):
     """
-    Computes P@K, R@K, NDCG@K for a single user interaction.
+    Computes P@K, R@K, NDCG@K, MRR@K for a single user interaction.
     Args:
         recommended_ids (list): Top K recommended recipe IDs.
         true_id (str): The actual recipe ID the user interacted with.
@@ -31,7 +33,7 @@ def calculate_metrics(recommended_ids, true_id):
     
     # Handle empty recommendations
     if k == 0:
-        return 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0
     
     # Hit?
     if true_id in recommended_ids:
@@ -45,12 +47,17 @@ def calculate_metrics(recommended_ids, true_id):
         dcg = 1.0 / math.log2(rank_index + 2)
         idcg = 1.0
         ndcg_k = dcg / idcg
+        
+        # MRR@K
+        # 1 / (rank + 1)
+        mrr_k = 1.0 / (rank_index + 1)
     else:
         p_k = 0.0
         r_k = 0.0
         ndcg_k = 0.0
+        mrr_k = 0.0
         
-    return p_k, r_k, ndcg_k
+    return p_k, r_k, ndcg_k, mrr_k
 
 # -------------------------------------------------------------------
 # Data Loading
@@ -196,8 +203,11 @@ def evaluate():
     actual_sample_size = min(SAMPLE_SIZE, len(warm_interactions))
     eval_set = warm_interactions.sample(n=actual_sample_size, random_state=42)
     
-    pop_metrics = {"p": 0.0, "r": 0.0, "n": 0.0}
-    knn_metrics = {"p": 0.0, "r": 0.0, "n": 0.0}
+    pop_metrics = {"p": 0.0, "r": 0.0, "n": 0.0, "mrr": 0.0}
+    knn_metrics = {"p": 0.0, "r": 0.0, "n": 0.0, "mrr": 0.0}
+    
+    pop_recommended_items = set()
+    knn_recommended_items = set()
     
     user_history = all_interactions.groupby("user_id")["recipe_id"].apply(list).to_dict()
     
@@ -229,17 +239,23 @@ def evaluate():
             
         # 1. Popularity
         pop_recs = pop_model.recommend(uid)
-        p, r, n = calculate_metrics(pop_recs, true_rid)
+        pop_recommended_items.update(pop_recs)
+        
+        p, r, n, m = calculate_metrics(pop_recs, true_rid)
         pop_metrics["p"] += p
         pop_metrics["r"] += r
         pop_metrics["n"] += n
+        pop_metrics["mrr"] += m
         
         # 2. KNN (Content) - Uses all history
         knn_recs = knn_model.recommend_profile(history_minus_target)
-        p, r, n = calculate_metrics(knn_recs, true_rid)
+        knn_recommended_items.update(knn_recs)
+        
+        p, r, n, m = calculate_metrics(knn_recs, true_rid)
         knn_metrics["p"] += p
         knn_metrics["r"] += r
         knn_metrics["n"] += n
+        knn_metrics["mrr"] += m
         
         count += 1
         
@@ -262,25 +278,86 @@ def evaluate():
     print("="*70)
     
     if count > 0:
+        # Calculate Coverage
+        total_unique_items = len(recipes)
+        pop_coverage = len(pop_recommended_items) / total_unique_items
+        knn_coverage = len(knn_recommended_items) / total_unique_items
+        
         print(f"\nPOPULARITY BASELINE:")
         print(f"  NDCG@10:      {pop_metrics['n']/count:.5f}")
         print(f"  Recall@10:    {pop_metrics['r']/count:.5f}")
         print(f"  Precision@10: {pop_metrics['p']/count:.5f}")
+        print(f"  MRR@10:       {pop_metrics['mrr']/count:.5f}")
+        print(f"  Coverage:     {pop_coverage:.2%}")
         
-        print("\n" + "-" * 70)
-        
+        print("\n" + "-" * 70)  
         print(f"\nKNN (CONTENT) BASELINE:")
         print(f"  NDCG@10:      {knn_metrics['n']/count:.5f}")
         print(f"  Recall@10:    {knn_metrics['r']/count:.5f}")
         print(f"  Precision@10: {knn_metrics['p']/count:.5f}")
+        print(f"  MRR@10:       {knn_metrics['mrr']/count:.5f}")
+        print(f"  Coverage:     {knn_coverage:.2%}")
         
         # Compare
         print("\n" + "-" * 70)
         print(f"\nComparison (KNN vs Popularity):")
         knn_ndcg_gain = (knn_metrics['n'] - pop_metrics['n'])/count
         knn_recall_gain = (knn_metrics['r'] - pop_metrics['r'])/count
-        print(f"  NDCG Improvement: {knn_ndcg_gain:+.5f} ({knn_ndcg_gain/(pop_metrics['n']/count)*100 if pop_metrics['n'] > 0 else 0:+.1f}%)")
-        print(f"  Recall Improvement: {knn_recall_gain:+.5f} ({knn_recall_gain/(pop_metrics['r']/count)*100 if pop_metrics['r'] > 0 else 0:+.1f}%)")
+        knn_precision_gain = (knn_metrics['p'] - pop_metrics['p'])/count
+        
+        pop_ndcg = pop_metrics['n']/count
+        pop_recall = pop_metrics['r']/count
+        print(f"  NDCG Improvement: {knn_ndcg_gain:+.5f} ({knn_ndcg_gain/pop_ndcg*100 if pop_ndcg > 0 else 0:+.1f}%)")
+        print(f"  Recall Improvement: {knn_recall_gain:+.5f} ({knn_recall_gain/pop_recall*100 if pop_recall > 0 else 0:+.1f}%)")
+        
+        # Save evaluation results to JSON
+        eval_results = {
+            "evaluation_timestamp": datetime.now().isoformat(),
+            "evaluation_config": {
+                "sample_size": SAMPLE_SIZE,
+                "top_k": TOP_K,
+                "warm_user_minimum_history": 5
+            },
+            "dataset_statistics": {
+                "total_interactions": len(all_interactions),
+                "warm_users_count": len(warm_users),
+                "evaluation_samples": count,
+                "skipped_samples": skipped
+            },
+            "baseline_results": {
+                "popularity": {
+                    "precision_10": round(pop_metrics['p']/count, 5),
+                    "recall_10": round(pop_metrics['r']/count, 5),
+                    "ndcg_10": round(pop_metrics['n']/count, 5),
+                    "mrr_10": round(pop_metrics['mrr']/count, 5),
+                    "coverage": round(pop_coverage, 5)
+                },
+                "content_knn": {
+                    "precision_10": round(knn_metrics['p']/count, 5),
+                    "recall_10": round(knn_metrics['r']/count, 5),
+                    "ndcg_10": round(knn_metrics['n']/count, 5),
+                    "mrr_10": round(knn_metrics['mrr']/count, 5),
+                    "coverage": round(knn_coverage, 5)
+                }
+            },
+            "knn_improvement": {
+                "precision_gain": round(knn_precision_gain, 5),
+                "recall_gain": round(knn_recall_gain, 5),
+                "ndcg_gain": round(knn_ndcg_gain, 5),
+                "ndcg_percentage_improvement": round(knn_ndcg_gain/pop_ndcg*100 if pop_ndcg > 0 else 0, 2)
+            },
+            "performance": {
+                "total_evaluation_time_seconds": round(total_eval_time, 2),
+                "time_per_sample_milliseconds": round(total_eval_time/count*1000, 3)
+            }
+        }
+        
+        # Save to JSON
+        results_path = "models/saved/baseline_evaluation_results.json"
+        os.makedirs(os.path.dirname(results_path), exist_ok=True)
+        with open(results_path, 'w') as f:
+            json.dump(eval_results, f, indent=4)
+        print(f"\nEvaluation results saved to {results_path}")
     else:
         print("No valid samples found.")
     print("="*70)
