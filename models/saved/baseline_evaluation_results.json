@@ -1,0 +1,40 @@
+{
+    "evaluation_timestamp": "2025-12-10T15:38:10.390523",
+    "evaluation_config": {
+        "sample_size": 5000,
+        "top_k": 10,
+        "warm_user_minimum_history": 5
+    },
+    "dataset_statistics": {
+        "total_interactions": 1132367,
+        "warm_users_count": 23086,
+        "evaluation_samples": 5000,
+        "skipped_samples": 0
+    },
+    "baseline_results": {
+        "popularity": {
+            "precision_10": 0.0007,
+            "recall_10": 0.007,
+            "ndcg_10": 0.00267,
+            "mrr_10": 0.0014,
+            "coverage": 4e-05
+        },
+        "content_knn": {
+            "precision_10": 7e-05,
+            "recall_10": 0.0004,
+            "ndcg_10": 0.00016,
+            "mrr_10": 9e-05,
+            "coverage": 0.00855
+        }
+    },
+    "knn_improvement": {
+        "precision_gain": -0.00063,
+        "recall_gain": -0.0066,
+        "ndcg_gain": -0.00251,
+        "ndcg_percentage_improvement": -93.89
+    },
+    "performance": {
+        "total_evaluation_time_seconds": 11088.85,
+        "time_per_sample_milliseconds": 2217.771
+    }
+}

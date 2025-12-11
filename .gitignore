@@ -1,10 +1,10 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-models/saved/
-data/mock/
-data/mock_images/
+#models/saved/
 data/food-101/
 venv/
 .env
 data/food.com-interaction/
+
+.claude/
