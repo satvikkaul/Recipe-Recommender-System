@@ -21,7 +21,7 @@ def parse_list_column(val):
         return []
 
 class ImageEngine:
-    def __init__(self, model_path, class_names):
+    def __init__(self, model_path, class_names, recipes_csv=None):
         print(f"Loading Image Model from {model_path}...")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.class_names = class_names
@@ -43,14 +43,60 @@ class ImageEngine:
                                  [0.229, 0.224, 0.225])
         ])
         
-        self.nutrition_db = {
-            "pizza": {"calories": 285, "protein": 12, "carbs": 36, "fat": 10},
-            "burger": {"calories": 354, "protein": 17, "carbs": 31, "fat": 17},
-            "salad": {"calories": 150, "protein": 5, "carbs": 10, "fat": 10},
-            "sushi": {"calories": 200, "protein": 9, "carbs": 28, "fat": 5},
-            "pasta": {"calories": 131, "protein": 5, "carbs": 25, "fat": 1},
-        }
+        # Build nutrition database from recipes CSV
+        self.nutrition_db = self._build_nutrition_db(recipes_csv)
         print("Image Model loaded.")
+
+    def _build_nutrition_db(self, recipes_csv):
+        """
+        Build nutrition lookup from recipes CSV.
+        Maps food names to average nutrition values from actual recipes.
+        Nutrition format: [calories, fat, sugar, sodium, protein, saturated_fat, carbs]
+        """
+        nutrition_db = {}
+        
+        if recipes_csv and os.path.exists(recipes_csv):
+            try:
+                print(f"Loading nutrition data from {recipes_csv}...")
+                recipes = pd.read_csv(recipes_csv)
+                
+                # Parse nutrition column
+                recipes['nutrition'] = recipes['nutrition'].apply(parse_list_column)
+                
+                # Group by food name and compute average nutrition
+                for food_name in self.class_names:
+                    # Find recipes that match this food category
+                    # Match by looking for food name in recipe name (approximate matching)
+                    matching_recipes = recipes[
+                        recipes['name'].str.lower().str.contains(food_name.replace('_', ' '), na=False, case=False)
+                    ]
+                    
+                    if len(matching_recipes) > 0:
+                        # Get nutrition values (format: [Cal, Fat, Sugar, Sodium, Protein, SatFat, Carbs])
+                        nutrition_lists = []
+                        for nut in matching_recipes['nutrition']:
+                            if isinstance(nut, list) and len(nut) >= 7:
+                                nutrition_lists.append(nut)
+                        
+                        if nutrition_lists:
+                            # Average the nutrition values
+                            avg_nutrition = np.mean(nutrition_lists, axis=0)
+                            nutrition_db[food_name] = {
+                                "calories": int(avg_nutrition[0]),
+                                "fat": round(avg_nutrition[1], 1),
+                                "sugar": round(avg_nutrition[2], 1),
+                                "sodium": int(avg_nutrition[3]),
+                                "protein": round(avg_nutrition[4], 1),
+                                "saturated_fat": round(avg_nutrition[5], 1),
+                                "carbs": round(avg_nutrition[6], 1),
+                            }
+                    
+                print(f"Built nutrition DB for {len(nutrition_db)} food categories from recipes")
+            except Exception as e:
+                print(f"Warning: Could not load nutrition from CSV: {e}")
+        
+        # Return nutrition_db, or empty if loading failed
+        return nutrition_db
 
     def predict(self, image_bytes):
         image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
@@ -63,7 +109,11 @@ class ImageEngine:
         confidence, predicted_idx = torch.max(probabilities, 1)
         predicted_class = self.class_names[predicted_idx.item()]
         
-        nutrition = self.nutrition_db.get(predicted_class, {"calories": 0, "protein": 0, "carbs": 0, "fat": 0})
+        # Get nutrition, with fallback to zeros if not found
+        nutrition = self.nutrition_db.get(
+            predicted_class, 
+            {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+        )
         
         return {
             "food_name": predicted_class,
