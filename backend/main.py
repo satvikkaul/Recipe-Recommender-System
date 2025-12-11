@@ -57,7 +57,7 @@ def load_models():
         image_path = image_path + ".keras"
     
     if os.path.exists(image_path):
-        image_engine = ImageEngine(image_path, CLASS_NAMES)
+        image_engine = ImageEngine(image_path, CLASS_NAMES, recipes_csv=RECIPES_CSV)
     else:
         print(f"Warning: Image model not found at {image_path}")
 
