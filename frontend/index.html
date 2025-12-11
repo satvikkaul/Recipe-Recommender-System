@@ -3,20 +3,566 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NutriSnap</title>
+    <title>NutriSnap - AI Nutrition Assistant</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        .section { margin-bottom: 30px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
-        .btn { background: #007bff; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; }
-        .btn:hover { background: #0056b3; }
-        .recipe-card { border: 1px solid #eee; padding: 10px; margin: 10px 0; border-radius: 4px; }
-        .fit { border-left: 5px solid green; }
-        .no-fit { border-left: 5px solid red; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 3em;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.95;
+            font-weight: 300;
+        }
+
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 968px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .card-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-right: 15px;
+        }
+
+        .card-icon.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .card-icon.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .card-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 3px dashed #cbd5e0;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f7fafc;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #edf2f7;
+        }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            font-size: 1.1em;
+            color: #4a5568;
+            font-weight: 500;
+        }
+
+        .upload-hint {
+            font-size: 0.9em;
+            color: #a0aec0;
+            margin-top: 8px;
+        }
+
+        /* Prediction Result */
+        .prediction-result {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 20px;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .prediction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .prediction-food {
+            font-size: 1.8em;
+            font-weight: 700;
+            text-transform: capitalize;
+        }
+
+        .prediction-confidence {
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }
+
+        .nutrition-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .nutrition-item {
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .nutrition-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .nutrition-value {
+            font-size: 1.5em;
+            font-weight: 700;
+        }
+
+        /* Buttons */
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            font-size: 1em;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .btn-success:hover:not(:disabled) {
+            box-shadow: 0 10px 25px rgba(17, 153, 142, 0.4);
+        }
+
+        /* Calorie Tracker */
+        .calorie-tracker {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .tracker-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .tracker-title {
+            font-size: 1.3em;
+            color: #2d3748;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .progress-ring {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto 20px;
+        }
+
+        .progress-circle {
+            transform: rotate(-90deg);
+        }
+
+        .progress-circle-bg {
+            fill: none;
+            stroke: #e2e8f0;
+            stroke-width: 12;
+        }
+
+        .progress-circle-fill {
+            fill: none;
+            stroke: url(#gradient);
+            stroke-width: 12;
+            stroke-linecap: round;
+            transition: stroke-dasharray 0.5s ease;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .progress-calories {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #2d3748;
+        }
+
+        .progress-label {
+            font-size: 0.9em;
+            color: #718096;
+            margin-top: 5px;
+        }
+
+        .calorie-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: #2d3748;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #718096;
+            margin-top: 5px;
+        }
+
+        .manual-input {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 12px;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .input-group label {
+            font-weight: 500;
+            color: #4a5568;
+        }
+
+        .input-group input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        /* Recipe Cards */
+        .recipes-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        .recipes-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .recipes-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .recipes-count {
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .recipe-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .recipe-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            border-color: #667eea;
+        }
+
+        .recipe-card.fit {
+            border-left: 5px solid #38ef7d;
+            background: linear-gradient(90deg, rgba(56,239,125,0.05) 0%, white 100%);
+        }
+
+        .recipe-card.no-fit {
+            border-left: 5px solid #fc8181;
+            background: linear-gradient(90deg, rgba(252,129,129,0.05) 0%, white 100%);
+        }
+
+        .recipe-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .recipe-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2d3748;
+            flex: 1;
+            margin-right: 15px;
+        }
+
+        .recipe-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .recipe-badge.fit {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .recipe-badge.no-fit {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .recipe-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            color: #718096;
+            font-size: 0.95em;
+        }
+
+        .recipe-info-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .recipe-info-icon {
+            font-weight: 700;
+        }
+
+        /* Loading Spinner */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            color: #4a5568;
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #a0aec0;
+        }
+
+        .empty-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        .empty-text {
+            font-size: 1.2em;
+            color: #718096;
+        }
+
+        /* Animations */
+        .fade-in {
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .calorie-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .nutrition-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .input-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
     </style>
 </head>
 <body>
@@ -24,14 +570,16 @@
 
     <script type="text/babel">
         function App() {
-            const [view, setView] = React.useState('home');
             const [recommendations, setRecommendations] = React.useState([]);
-            const [calories, setCalories] = React.useState(1500);
+            const [calories, setCalories] = React.useState(500);
             const [prediction, setPrediction] = React.useState(null);
             const [loading, setLoading] = React.useState(false);
+            const [loadingMessage, setLoadingMessage] = React.useState('');
+            const dailyGoal = 2000;
 
             const handleRecommend = async () => {
                 setLoading(true);
+                setLoadingMessage('Finding perfect recipes for you...');
                 try {
                     const response = await fetch('http://localhost:8000/recommend', {
                         method: 'POST',
@@ -39,14 +587,14 @@
                         body: JSON.stringify({
                             user_id: 'user_1',
                             current_calories: parseInt(calories),
-                            daily_goal: 2000
+                            daily_goal: dailyGoal
                         })
                     });
                     const data = await response.json();
                     setRecommendations(data.recommendations);
                 } catch (err) {
                     console.error(err);
-                    alert("Error fetching recommendations");
+                    alert("❌ Error fetching recommendations. Please make sure the backend server is running.");
                 }
                 setLoading(false);
             };
@@ -56,6 +604,7 @@
                 if (!file) return;
 
                 setLoading(true);
+                setLoadingMessage('Analyzing your food image...');
                 const formData = new FormData();
                 formData.append('file', file);
 
@@ -68,66 +617,257 @@
                     setPrediction(data);
                 } catch (err) {
                     console.error(err);
-                    alert("Error predicting image");
+                    alert("❌ Error predicting image. Please make sure the backend server is running.");
                 }
                 setLoading(false);
             };
 
+            const addToIntake = () => {
+                setCalories(prev => parseInt(prev) + prediction.nutrition.calories);
+                setPrediction(null);
+            };
+
+            // Calculate progress percentage
+            const progress = Math.min((calories / dailyGoal) * 100, 100);
+            const remaining = Math.max(dailyGoal - calories, 0);
+            
+            // SVG circle parameters
+            const radius = 85;
+            const circumference = 2 * Math.PI * radius;
+            const strokeDasharray = circumference;
+            const strokeDashoffset = circumference - (progress / 100) * circumference;
+
             return (
-                <div className="container">
-                    <h1>NutriSnap</h1>
-                    
-                    <div className="section">
-                        <h2>1. Log Meal (Image Recognition)</h2>
-                        <input type="file" accept="image/*" onChange={handleImageUpload} />
-                        {loading && <p>Processing...</p>}
-                        {prediction && (
-                            <div style={{marginTop: '10px', padding: '10px', background: '#e9ecef'}}>
-                                <h3>Detected: {prediction.food_name}</h3>
-                                <p>Confidence: {(prediction.confidence * 100).toFixed(1)}%</p>
-                                <ul>
-                                    <li>Calories: {prediction.nutrition.calories}</li>
-                                    <li>Protein: {prediction.nutrition.protein}g</li>
-                                    <li>Carbs: {prediction.nutrition.carbs}g</li>
-                                    <li>Fat: {prediction.nutrition.fat}g</li>
-                                </ul>
-                                <button className="btn" onClick={() => {
-                                    setCalories(prev => prev + prediction.nutrition.calories);
-                                    setPrediction(null);
-                                    alert("Meal added to daily intake!");
-                                }}>Add to Daily Intake</button>
-                            </div>
-                        )}
+                <div className="app-container fade-in">
+                    {/* Header */}
+                    <div className="header">
+                        <h1>🥗 NutriSnap</h1>
+                        <p>AI-Powered Nutrition Assistant & Recipe Recommender</p>
                     </div>
 
-                    <div className="section">
-                        <h2>2. Get Recommendations</h2>
-                        <p>Current Daily Intake: {calories} / 2000 kcal</p>
-                        <p>Remaining: {2000 - calories} kcal</p>
-                        
-                        <div style={{margin: '10px 0'}}>
-                            <label>Update Intake Manually: </label>
-                            <input 
-                                type="number" 
-                                value={calories} 
-                                onChange={(e) => setCalories(e.target.value)} 
-                            />
-                        </div>
-
-                        <button className="btn" onClick={handleRecommend} disabled={loading}>
-                            {loading ? 'Loading...' : 'Get Goal-Aware Recipes'}
-                        </button>
-
-                        <div className="results">
-                            {recommendations.map((rec) => (
-                                <div key={rec.recipe_id} className={`recipe-card ${rec.fits_budget ? 'fit' : 'no-fit'}`}>
-                                    <h3>{rec.recipe_name}</h3>
-                                    <p>Calories: {rec.calories} | Protein: {rec.protein}g | Cuisine: {rec.cuisine}</p>
-                                    <small>{rec.fits_budget ? "✅ Fits Budget" : "⚠️ Over Budget"}</small>
+                    {/* Calorie Tracker */}
+                    <div className="calorie-tracker fade-in">
+                        <div className="tracker-header">
+                            <h2 className="tracker-title">📊 Daily Calorie Tracker</h2>
+                            
+                            <div className="progress-ring">
+                                <svg width="200" height="200" className="progress-circle">
+                                    <defs>
+                                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <stop offset="0%" style={{stopColor: '#667eea', stopOpacity: 1}} />
+                                            <stop offset="100%" style={{stopColor: '#764ba2', stopOpacity: 1}} />
+                                        </linearGradient>
+                                    </defs>
+                                    <circle cx="100" cy="100" r={radius} className="progress-circle-bg" />
+                                    <circle 
+                                        cx="100" 
+                                        cy="100" 
+                                        r={radius} 
+                                        className="progress-circle-fill"
+                                        style={{
+                                            strokeDasharray: strokeDasharray,
+                                            strokeDashoffset: strokeDashoffset
+                                        }}
+                                    />
+                                </svg>
+                                <div className="progress-text">
+                                    <div className="progress-calories">{calories}</div>
+                                    <div className="progress-label">of {dailyGoal} kcal</div>
                                 </div>
-                            ))}
+                            </div>
+                        </div>
+
+                        <div className="calorie-stats">
+                            <div className="stat-card">
+                                <div className="stat-value">{calories}</div>
+                                <div className="stat-label">Consumed</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-value">{remaining}</div>
+                                <div className="stat-label">Remaining</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-value">{progress.toFixed(0)}%</div>
+                                <div className="stat-label">Progress</div>
+                            </div>
+                        </div>
+
+                        <div className="manual-input">
+                            <div className="input-group">
+                                <label>Manual Entry:</label>
+                                <input 
+                                    type="number" 
+                                    value={calories} 
+                                    onChange={(e) => setCalories(e.target.value)} 
+                                    placeholder="Enter calories"
+                                />
+                            </div>
                         </div>
                     </div>
+
+                    {/* Main Grid */}
+                    <div className="main-grid">
+                        {/* Image Recognition Card */}
+                        <div className="card">
+                            <div className="card-header">
+                                <div className="card-icon primary">📸</div>
+                                <div className="card-title">Log Your Meal</div>
+                            </div>
+
+                            <div className="upload-area">
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={handleImageUpload}
+                                    disabled={loading}
+                                />
+                                <div className="upload-icon">🍽️</div>
+                                <div className="upload-text">Click or drag to upload food image</div>
+                                <div className="upload-hint">Supported: JPG, PNG (Max 10MB)</div>
+                            </div>
+
+                            {loading && !prediction && (
+                                <div className="loading">
+                                    <div className="spinner"></div>
+                                    <div className="loading-text">{loadingMessage}</div>
+                                </div>
+                            )}
+
+                            {prediction && (
+                                <div className="prediction-result">
+                                    <div className="prediction-header">
+                                        <div className="prediction-food">
+                                            {prediction.food_name}
+                                        </div>
+                                        <div className="prediction-confidence">
+                                            {(prediction.confidence * 100).toFixed(1)}% confident
+                                        </div>
+                                    </div>
+
+                                    <div className="nutrition-grid">
+                                        <div className="nutrition-item">
+                                            <div className="nutrition-label">🔥 Calories</div>
+                                            <div className="nutrition-value">{prediction.nutrition.calories}</div>
+                                        </div>
+                                        <div className="nutrition-item">
+                                            <div className="nutrition-label">💪 Protein</div>
+                                            <div className="nutrition-value">{prediction.nutrition.protein}g</div>
+                                        </div>
+                                        <div className="nutrition-item">
+                                            <div className="nutrition-label">🍞 Carbs</div>
+                                            <div className="nutrition-value">{prediction.nutrition.carbs}g</div>
+                                        </div>
+                                        <div className="nutrition-item">
+                                            <div className="nutrition-label">🥑 Fat</div>
+                                            <div className="nutrition-value">{prediction.nutrition.fat}g</div>
+                                        </div>
+                                    </div>
+
+                                    <button className="btn btn-success" onClick={addToIntake}>
+                                        ✅ Add to Daily Intake
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Get Recommendations Card */}
+                        <div className="card">
+                            <div className="card-header">
+                                <div className="card-icon success">🎯</div>
+                                <div className="card-title">Get Recommendations</div>
+                            </div>
+
+                            <div style={{marginBottom: '20px', padding: '20px', background: '#f7fafc', borderRadius: '12px'}}>
+                                <div style={{fontSize: '0.95em', color: '#4a5568', marginBottom: '10px'}}>
+                                    Our AI will recommend recipes that:
+                                </div>
+                                <ul style={{paddingLeft: '20px', color: '#718096', fontSize: '0.9em'}}>
+                                    <li>Match your calorie budget ({remaining} kcal remaining)</li>
+                                    <li>Align with your food preferences</li>
+                                    <li>Include nutritional balance</li>
+                                    <li>Are personalized using your history</li>
+                                </ul>
+                            </div>
+
+                            <button 
+                                className="btn" 
+                                onClick={handleRecommend} 
+                                disabled={loading}
+                            >
+                                {loading ? '⏳ Loading...' : '🚀 Get Personalized Recipes'}
+                            </button>
+
+                            {loading && !recommendations.length && (
+                                <div className="loading">
+                                    <div className="spinner"></div>
+                                    <div className="loading-text">{loadingMessage}</div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Recommendations Section */}
+                    {recommendations.length > 0 && (
+                        <div className="recipes-section fade-in">
+                            <div className="recipes-header">
+                                <div className="recipes-title">🍳 Recommended Recipes</div>
+                                <div className="recipes-count">{recommendations.length} recipes</div>
+                            </div>
+
+                            <div>
+                                {recommendations.map((rec, index) => {
+                                    const recCalories = rec.calories || 0;
+                                    const recProtein = Array.isArray(rec.nutrition) && rec.nutrition.length > 4 
+                                        ? rec.nutrition[4] 
+                                        : rec.protein || 0;
+                                    
+                                    return (
+                                        <div 
+                                            key={rec.recipe_id || index} 
+                                            className={`recipe-card ${rec.fits_budget ? 'fit' : 'no-fit'}`}
+                                        >
+                                            <div className="recipe-header">
+                                                <div className="recipe-name">
+                                                    {rec.name || rec.recipe_name || 'Untitled Recipe'}
+                                                </div>
+                                                <div className={`recipe-badge ${rec.fits_budget ? 'fit' : 'no-fit'}`}>
+                                                    {rec.fits_budget ? '✅ Fits Budget' : '⚠️ Over Budget'}
+                                                </div>
+                                            </div>
+                                            <div className="recipe-info">
+                                                <div className="recipe-info-item">
+                                                    <span className="recipe-info-icon">🔥</span>
+                                                    <span>{Math.round(recCalories)} kcal</span>
+                                                </div>
+                                                <div className="recipe-info-item">
+                                                    <span className="recipe-info-icon">💪</span>
+                                                    <span>{Math.round(recProtein)}g protein</span>
+                                                </div>
+                                                {rec.minutes && (
+                                                    <div className="recipe-info-item">
+                                                        <span className="recipe-info-icon">⏱️</span>
+                                                        <span>{rec.minutes} min</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Empty State */}
+                    {!loading && recommendations.length === 0 && !prediction && (
+                        <div className="recipes-section fade-in">
+                            <div className="empty-state">
+                                <div className="empty-icon">🍴</div>
+                                <div className="empty-text">
+                                    Upload a food image or click "Get Personalized Recipes" to start!
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
