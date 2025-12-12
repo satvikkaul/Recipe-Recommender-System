@@ -7,6 +7,4 @@ venv/
 .env
 data/food.com-interaction/
 
-.claude/
-
 .DS_Store
