@@ -308,8 +308,9 @@ class RecommenderEngine:
         
         # Handle unknown users: return budget-appropriate popular recipes
         if user_id not in self.user_to_idx:
-            print(f"Unknown user {user_id}, using cold-start popular recommendations")
-            return self._get_popular_recommendations(remaining_budget, top_k)
+            print(f"Unknown user {user_id}, using popularity-based recommendations")
+            # Fallback to content-based recommendations for unknown users
+            return self._recommend_for_new_user(current_calories, daily_goal, top_k)
 
         user_idx = self.user_to_idx[user_id]
         user_tensor = torch.tensor([user_idx], device=self.device)
@@ -362,36 +363,39 @@ class RecommenderEngine:
                 break
 
         return recommendations
-    
-    def _get_popular_recommendations(self, remaining_budget, top_k=10):
-        """Get popular recipes that fit the remaining calorie budget (cold-start for unknown users)"""
-        recommendations = []
+
+    def _recommend_for_new_user(self, current_calories, daily_goal, top_k=10):
+        """
+        Recommend recipes for new/unknown users based on:
+        1. Budget fit (remaining calories)
+        2. Popularity (random selection from healthy options)
+        3. Nutritional balance
+        """
+        remaining_budget = daily_goal - current_calories
         
-        # Filter recipes by remaining budget with tolerance
-        budget_tolerance = max(remaining_budget * 0.3, 500)  # Allow 30% variance or 500 cal min
-        filtered = self.recipes_df[
-            (self.recipes_df['calories'] > 100) &  # Skip very low calorie recipes
-            (self.recipes_df['calories'] <= (remaining_budget + budget_tolerance))
+        # Filter recipes that fit budget (with 100 cal tolerance)
+        budget_recipes = self.recipes_df[
+            self.recipes_df['calories'] <= (remaining_budget + 100)
         ].copy()
         
-        if len(filtered) == 0:
-            # If no perfect matches, get whatever fits without going too far over
-            filtered = self.recipes_df[
-                (self.recipes_df['calories'] > 100) &
-                (self.recipes_df['calories'] <= (remaining_budget + remaining_budget * 0.5))
-            ].copy()
+        # If no recipes fit, get lowest calorie recipes
+        if budget_recipes.empty:
+            budget_recipes = self.recipes_df.nsmallest(top_k * 2, 'calories').copy()
         
-        if len(filtered) > 0:
-            # Sort by number of reviews (popularity) descending, then by calories match
-            filtered['popularity'] = filtered.get('n_steps', 0) * filtered.get('n_ingredients', 0)
-            filtered['cal_diff'] = abs(filtered['calories'] - remaining_budget)
-            filtered = filtered.sort_values(['popularity', 'cal_diff'], ascending=[False, True])
+        # Score by nutritional balance and calorie fit
+        budget_recipes['score'] = 1.0 / (1.0 + abs(budget_recipes['calories'] - remaining_budget/2))
+        
+        # Sort by score and take top_k
+        budget_recipes = budget_recipes.sort_values('score', ascending=False)
+        
+        recommendations = []
+        for _, row in budget_recipes.head(top_k * 2).iterrows():
+            info = row.to_dict()
+            info['fits_budget'] = info['calories'] <= (remaining_budget + 100)
+            info['score'] = float(info['score'])
+            recommendations.append(info)
             
-            # Return top_k recipes
-            for idx, row in filtered.head(top_k).iterrows():
-                info = row.to_dict()
-                info['fits_budget'] = row['calories'] <= (remaining_budget + 100)
-                info['score'] = 0.5  # Default score for cold-start
-                recommendations.append(info)
+            if len(recommendations) >= top_k:
+                break
         
         return recommendations
