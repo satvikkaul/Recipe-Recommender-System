@@ -303,6 +303,10 @@ class RecommenderEngine:
         return history_embs, history_mask
 
     def recommend(self, user_id, current_calories, daily_goal=2000, top_k=10):
+        # Calculate remaining calorie budget
+        remaining_budget = daily_goal - current_calories
+        
+        # Handle unknown users: return budget-appropriate popular recipes
         if user_id not in self.user_to_idx:
             print(f"Unknown user {user_id}, using popularity-based recommendations")
             # Fallback to content-based recommendations for unknown users
@@ -319,9 +323,6 @@ class RecommenderEngine:
 
         # Get base scores from model
         scores = torch.matmul(user_emb, self.item_embeddings.T).squeeze(0)
-        
-        # Calculate remaining calorie budget
-        remaining_budget = daily_goal - current_calories
         
         # GOAL-AWARE RE-RANKING: Boost scores for items that fit budget
         # This implements the proposal requirement: "recipes that fit remaining daily budget"
