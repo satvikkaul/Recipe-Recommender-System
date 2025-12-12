@@ -3,9 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
     <title>NutriSnap - AI Nutrition Assistant</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -51,99 +48,6 @@
             font-size: 1.2em;
             opacity: 0.95;
             font-weight: 300;
-        }
-
-        /* User Selection Card */
-        .user-selection-card {
-            background: white;
-            border-radius: 20px;
-            padding: 25px 30px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-
-        .user-selection-header {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .user-icon {
-            width: 45px;
-            height: 45px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-        }
-
-        .user-selection-title {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #2d3748;
-        }
-
-        .user-select-wrapper {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-        }
-
-        .user-select {
-            flex: 1;
-            padding: 14px 18px;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            font-size: 1.05em;
-            font-weight: 500;
-            color: #2d3748;
-            background: white;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .user-select:hover {
-            border-color: #667eea;
-        }
-
-        .user-select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .user-status-badge {
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
-            white-space: nowrap;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .user-status-badge.personalized {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            color: white;
-        }
-
-        .user-status-badge.fallback {
-            background: #fef3c7;
-            color: #92400e;
-            border: 2px solid #fbbf24;
-        }
-
-        .user-info-details {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f7fafc;
-            border-radius: 10px;
-            font-size: 0.95em;
-            color: #4a5568;
         }
 
         /* Main Grid */
@@ -701,11 +605,6 @@
                 flex-direction: column;
                 align-items: stretch;
             }
-
-            .user-select-wrapper {
-                flex-direction: column;
-                align-items: stretch;
-            }
         }
 
         /* Recipe Detail Modal */
@@ -940,12 +839,6 @@
 
     <script type="text/babel">
         function App() {
-            // Demo Users State
-            const [demoUsers, setDemoUsers] = React.useState([]);
-            const [selectedUser, setSelectedUser] = React.useState('new_user');
-            const [userStatus, setUserStatus] = React.useState(null);
-
-            // Existing State
             const [recommendations, setRecommendations] = React.useState([]);
             const [calories, setCalories] = React.useState(() => {
                 const saved = localStorage.getItem('dailyCalories');
@@ -963,42 +856,6 @@
             const [showGoalInput, setShowGoalInput] = React.useState(false);
             const [selectedRecipe, setSelectedRecipe] = React.useState(null);
             const [modalTab, setModalTab] = React.useState('overview');
-
-            // Fetch Demo Users on Mount
-            React.useEffect(() => {
-                fetchDemoUsers();
-            }, []);
-
-            // Check User Status when Selection Changes
-            React.useEffect(() => {
-                if (selectedUser && selectedUser !== 'new_user') {
-                    checkUserStatus(selectedUser);
-                } else {
-                    setUserStatus({ exists: false, interactions: 0, is_demo: false });
-                }
-            }, [selectedUser]);
-
-            const fetchDemoUsers = async () => {
-                try {
-                    const response = await fetch('http://localhost:8000/users/demo');
-                    const data = await response.json();
-                    setDemoUsers(data.demo_users || []);
-                } catch (err) {
-                    console.error('Error fetching demo users:', err);
-                    setSelectedUser('new_user');
-                }
-            };
-
-            const checkUserStatus = async (userId) => {
-                try {
-                    const response = await fetch(`http://localhost:8000/users/check/${userId}`);
-                    const data = await response.json();
-                    setUserStatus(data);
-                } catch (err) {
-                    console.error('Error checking user status:', err);
-                    setUserStatus({ exists: false, interactions: 0, is_demo: false });
-                }
-            };
 
             // Persist calories to localStorage
             React.useEffect(() => {
@@ -1035,15 +892,13 @@
                 setLoading(true);
                 setLoadingMessage('Finding perfect recipes for you...');
                 try {
-                    const calValue = parseInt(calories) || 0;  // Default to 0 if parsing fails
                     const response = await fetch('http://localhost:8000/recommend', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            user_id: selectedUser,
-                            current_calories: calValue,
-                            daily_goal: parseInt(dailyGoal) || 2000,
-                            food_name: prediction ? prediction.food_name : undefined
+                            user_id: 'user_1',
+                            current_calories: parseInt(calories),
+                            daily_goal: dailyGoal
                         })
                     });
                     const data = await response.json();
@@ -1071,22 +926,6 @@
                     });
                     const data = await response.json();
                     setPrediction(data);
-
-                    // Auto-fetch recommendations with food context
-                    setLoadingMessage('Getting personalized recommendations...');
-                    const calValue = parseInt(calories) || 0;  // Default to 0 if parsing fails
-                    const recResponse = await fetch('http://localhost:8000/recommend', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            user_id: selectedUser,
-                            current_calories: calValue,
-                            daily_goal: parseInt(dailyGoal) || 2000,
-                            food_name: data.food_name
-                        })
-                    });
-                    const recData = await recResponse.json();
-                    setRecommendations(recData.recommendations);
                 } catch (err) {
                     console.error(err);
                     alert("❌ Error predicting image. Please make sure the backend server is running.");
@@ -1102,7 +941,7 @@
             // Calculate progress percentage
             const progress = Math.min((calories / dailyGoal) * 100, 100);
             const remaining = Math.max(dailyGoal - calories, 0);
-
+            
             // SVG circle parameters
             const radius = 85;
             const circumference = 2 * Math.PI * radius;
@@ -1117,67 +956,11 @@
                         <p>AI-Powered Nutrition Assistant & Recipe Recommender</p>
                     </div>
 
-                    {/* User Selection Card */}
-                    <div className="user-selection-card fade-in">
-                        <div className="user-selection-header">
-                            <div className="user-icon">👤</div>
-                            <div className="user-selection-title">Select User Profile</div>
-                        </div>
-                        <div className="user-select-wrapper">
-                            <select
-                                className="user-select"
-                                value={selectedUser}
-                                onChange={(e) => setSelectedUser(e.target.value)}
-                            >
-                                <option value="new_user">➕ New User (No History)</option>
-                                {demoUsers.map(user => (
-                                    <option key={user.user_id} value={user.user_id}>
-                                        🍽️ {user.cuisine} Lover ({user.interactions} interactions)
-                                    </option>
-                                ))}
-                            </select>
-                            {userStatus && (
-                                <div className={`user-status-badge ${userStatus.exists ? 'personalized' : 'fallback'}`}>
-                                    {userStatus.exists ? (
-                                        <React.Fragment>
-                                            <span>✓</span>
-                                            <span>Personalized</span>
-                                        </React.Fragment>
-                                    ) : (
-                                        <React.Fragment>
-                                            <span>⚠</span>
-                                            <span>Fallback Mode</span>
-                                        </React.Fragment>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        {userStatus && (
-                            <div className="user-info-details">
-                                {userStatus.exists ? (
-                                    <React.Fragment>
-                                        <strong>✓ Personalized Recommendations Active</strong>
-                                        <p style={{marginTop: '5px', fontSize: '0.9em'}}>
-                                            Using {userStatus.interactions} interactions from your history + food context + calorie budget
-                                        </p>
-                                    </React.Fragment>
-                                ) : (
-                                    <React.Fragment>
-                                        <strong>⚠ Fallback Mode</strong>
-                                        <p style={{marginTop: '5px', fontSize: '0.9em'}}>
-                                            New user with no history. Recommendations based on food context + calorie budget only.
-                                        </p>
-                                    </React.Fragment>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
                     {/* Calorie Tracker */}
                     <div className="calorie-tracker fade-in">
                         <div className="tracker-header">
                             <h2 className="tracker-title">📊 Daily Calorie Tracker</h2>
-
+                            
                             <div className="progress-ring">
                                 <svg width="200" height="200" className="progress-circle">
                                     <defs>
@@ -1187,10 +970,10 @@
                                         </linearGradient>
                                     </defs>
                                     <circle cx="100" cy="100" r={radius} className="progress-circle-bg" />
-                                    <circle
-                                        cx="100"
-                                        cy="100"
-                                        r={radius}
+                                    <circle 
+                                        cx="100" 
+                                        cy="100" 
+                                        r={radius} 
                                         className="progress-circle-fill"
                                         style={{
                                             strokeDasharray: strokeDasharray,
@@ -1224,10 +1007,10 @@
                             <div className="input-group">
                                 <label>Quick Add Calories:</label>
                                 <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                                    <input
-                                        type="number"
-                                        value={manualCalories}
-                                        onChange={(e) => setManualCalories(e.target.value)}
+                                    <input 
+                                        type="number" 
+                                        value={manualCalories} 
+                                        onChange={(e) => setManualCalories(e.target.value)} 
                                         placeholder="e.g., 250"
                                         min="0"
                                     />
@@ -1237,15 +1020,15 @@
                                 </div>
                             </div>
                             <div style={{marginTop: '15px', display: 'flex', gap: '10px'}}>
-                                <button
-                                    className="btn-secondary"
+                                <button 
+                                    className="btn-secondary" 
                                     onClick={() => setShowGoalInput(!showGoalInput)}
                                     style={{flex: 1}}
                                 >
                                     {showGoalInput ? '✕ Cancel' : '🎯 Set Goal'}
                                 </button>
-                                <button
-                                    className="btn-secondary"
+                                <button 
+                                    className="btn-secondary" 
                                     onClick={handleResetDay}
                                     style={{flex: 1}}
                                 >
@@ -1256,10 +1039,10 @@
                                 <div className="input-group" style={{marginTop: '15px', padding: '15px', background: '#f7fafc', borderRadius: '10px'}}>
                                     <label>Daily Calorie Goal:</label>
                                     <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                                        <input
-                                            type="number"
-                                            value={tempGoal}
-                                            onChange={(e) => setTempGoal(e.target.value)}
+                                        <input 
+                                            type="number" 
+                                            value={tempGoal} 
+                                            onChange={(e) => setTempGoal(e.target.value)} 
                                             placeholder="e.g., 2000"
                                             min="500"
                                             max="5000"
@@ -1283,9 +1066,9 @@
                             </div>
 
                             <div className="upload-area">
-                                <input
-                                    type="file"
-                                    accept="image/*"
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
                                     onChange={handleImageUpload}
                                     disabled={loading}
                                 />
@@ -1351,19 +1134,15 @@
                                 </div>
                                 <ul style={{paddingLeft: '20px', color: '#718096', fontSize: '0.9em'}}>
                                     <li>Match your calorie budget ({remaining} kcal remaining)</li>
-                                    <li>Similar to uploaded food (if provided)</li>
-                                    {userStatus && userStatus.exists && (
-                                        <li>Personalized using your {userStatus.interactions} interactions</li>
-                                    )}
-                                    {userStatus && !userStatus.exists && (
-                                        <li>Based on food context (no user history)</li>
-                                    )}
+                                    <li>Align with your food preferences</li>
+                                    <li>Include nutritional balance</li>
+                                    <li>Are personalized using your history</li>
                                 </ul>
                             </div>
 
-                            <button
-                                className="btn"
-                                onClick={handleRecommend}
+                            <button 
+                                className="btn" 
+                                onClick={handleRecommend} 
                                 disabled={loading}
                             >
                                 {loading ? '⏳ Loading...' : '🚀 Get Personalized Recipes'}
@@ -1389,13 +1168,13 @@
                             <div>
                                 {recommendations.map((rec, index) => {
                                     const recCalories = rec.calories || 0;
-                                    const recProtein = Array.isArray(rec.nutrition) && rec.nutrition.length > 4
-                                        ? rec.nutrition[4]
+                                    const recProtein = Array.isArray(rec.nutrition) && rec.nutrition.length > 4 
+                                        ? rec.nutrition[4] 
                                         : rec.protein || 0;
-
+                                    
                                     return (
-                                        <div
-                                            key={rec.recipe_id || index}
+                                        <div 
+                                            key={rec.recipe_id || index} 
                                             className={`recipe-card ${rec.fits_budget ? 'fit' : 'no-fit'}`}
                                             onClick={() => setSelectedRecipe(rec)}
                                             style={{cursor: 'pointer'}}
@@ -1423,12 +1202,6 @@
                                                         <span>{rec.minutes} min</span>
                                                     </div>
                                                 )}
-                                                {rec.context_match && (
-                                                    <div className="recipe-info-item">
-                                                        <span className="recipe-info-icon">🎯</span>
-                                                        <span>{rec.context_match === 'high' ? 'Highly Relevant' : 'Relevant'}</span>
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                     );
@@ -1449,7 +1222,7 @@
                         </div>
                     )}
 
-                    {/* Recipe Detail Modal (kept same as original) */}
+                    {/* Recipe Detail Modal */}
                     {selectedRecipe && (
                         <div className="modal-overlay" onClick={() => setSelectedRecipe(null)}>
                             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -1481,19 +1254,19 @@
                                 </div>
 
                                 <div className="modal-tabs">
-                                    <button
+                                    <button 
                                         className={`modal-tab ${modalTab === 'overview' ? 'active' : ''}`}
                                         onClick={() => setModalTab('overview')}
                                     >
                                         Overview
                                     </button>
-                                    <button
+                                    <button 
                                         className={`modal-tab ${modalTab === 'ingredients' ? 'active' : ''}`}
                                         onClick={() => setModalTab('ingredients')}
                                     >
                                         Ingredients
                                     </button>
-                                    <button
+                                    <button 
                                         className={`modal-tab ${modalTab === 'instructions' ? 'active' : ''}`}
                                         onClick={() => setModalTab('instructions')}
                                     >
@@ -1538,7 +1311,7 @@
                                                         <div className="nutrition-detail-item" style={{background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'}}>
                                                             <div className="nutrition-detail-label">Carbs</div>
                                                             <div className="nutrition-detail-value">
-                                                                {Math.round(selectedRecipe.nutrition[6])}
+                                                                {Math.round(selectedRecipe.nutrition[3])}
                                                                 <span className="nutrition-detail-unit">g</span>
                                                             </div>
                                                         </div>
@@ -1568,8 +1341,8 @@
                                             </div>
                                             {selectedRecipe.fits_budget !== undefined && (
                                                 <div style={{
-                                                    marginTop: '25px',
-                                                    padding: '20px',
+                                                    marginTop: '25px', 
+                                                    padding: '20px', 
                                                     background: selectedRecipe.fits_budget ? '#f0fdf4' : '#fef2f2',
                                                     borderRadius: '12px',
                                                     border: `2px solid ${selectedRecipe.fits_budget ? '#86efac' : '#fca5a5'}`
@@ -1585,7 +1358,7 @@
                                                             {selectedRecipe.fits_budget ? '✅' : '⚠️'}
                                                         </span>
                                                         <span>
-                                                            {selectedRecipe.fits_budget
+                                                            {selectedRecipe.fits_budget 
                                                                 ? 'This recipe fits your daily calorie budget!'
                                                                 : 'This recipe may exceed your daily calorie budget.'}
                                                         </span>
@@ -1642,8 +1415,8 @@
                                     <button className="btn-secondary" onClick={() => window.print()}>
                                         🖨️ Print Recipe
                                     </button>
-                                    <button
-                                        className="btn"
+                                    <button 
+                                        className="btn" 
                                         onClick={() => {
                                             alert(`Recipe "${selectedRecipe.name}" saved to your favorites! (Feature coming soon)`);
                                         }}

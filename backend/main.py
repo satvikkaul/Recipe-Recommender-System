@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import uvicorn
 import shutil
 
@@ -48,14 +49,20 @@ def load_models():
             RECIPES_CSV,
             interactions_csv=INTERACTIONS_CSV
         )
+        # Load demo users automatically
+        demo_file = "data/food.com-interaction/demo_users_interactions.csv"
+        if os.path.exists(demo_file):
+            recommender_engine.load_demo_users(demo_file)
+        else:
+            print(f"Info: No demo users file found at {demo_file}")
     else:
         print(f"Warning: {RECOMMENDER_PATH} not found.")
-        
+
     # Try both .keras and SavedModel formats
     image_path = IMAGE_MODEL_PATH
     if os.path.exists(image_path + ".keras"):
         image_path = image_path + ".keras"
-    
+
     if os.path.exists(image_path):
         image_engine = ImageEngine(image_path, CLASS_NAMES, recipes_csv=RECIPES_CSV)
     else:
@@ -65,22 +72,74 @@ def load_models():
 def read_root():
     return {"message": "Welcome to NutriSnap API"}
 
+@app.get("/users/info")
+def get_user_info():
+    """Get information about available users in the recommender system"""
+    if not recommender_engine:
+        raise HTTPException(status_code=503, detail="Recommender model not loaded")
+
+    info = recommender_engine.get_user_info()
+    return info
+
+@app.get("/users/check/{user_id}")
+def check_user_exists(user_id: str):
+    """Check if a specific user ID exists in the recommender system"""
+    if not recommender_engine:
+        raise HTTPException(status_code=503, detail="Recommender model not loaded")
+
+    exists = recommender_engine.user_exists(user_id)
+    history_count = len(recommender_engine.user_history.get(str(user_id), []))
+    is_demo = hasattr(recommender_engine, 'demo_users') and str(user_id) in recommender_engine.demo_users
+
+    return {
+        "user_id": user_id,
+        "exists": exists,
+        "interactions": history_count if exists else 0,
+        "is_demo": is_demo,
+        "message": f"User '{user_id}' {'exists' if exists else 'does not exist'} in the system"
+    }
+
+@app.get("/users/demo")
+def get_demo_users():
+    """Get list of available demo users"""
+    if not recommender_engine:
+        raise HTTPException(status_code=503, detail="Recommender model not loaded")
+
+    demo_users = recommender_engine.get_demo_users()
+    return {
+        "demo_users": demo_users,
+        "count": len(demo_users)
+    }
+
 class RecommendationRequest(BaseModel):
     user_id: str
     current_calories: int
     daily_goal: int = 2000
+    food_name: Optional[str] = None  # Optional: food name from image classification
 
 @app.post("/recommend")
 def get_recommendations(req: RecommendationRequest):
     if not recommender_engine:
         raise HTTPException(status_code=503, detail="Recommender model not loaded")
-    
+
     try:
-        results = recommender_engine.recommend(
-            req.user_id, 
-            req.current_calories, 
-            req.daily_goal
-        )
+        # Use context-aware recommendations if food_name is provided
+        if req.food_name:
+            print(f"Using context-aware recommendations for food: {req.food_name}")
+            results = recommender_engine.recommend_with_context(
+                req.user_id,
+                req.food_name,
+                req.current_calories,
+                req.daily_goal
+            )
+        else:
+            # Fallback to regular recommendations (backward compatible)
+            print("Using regular recommendations (no food context)")
+            results = recommender_engine.recommend(
+                req.user_id,
+                req.current_calories,
+                req.daily_goal
+            )
         return {"recommendations": results}
     except Exception as e:
         print(f"Error during recommendation: {e}")
