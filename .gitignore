@@ -8,3 +8,5 @@ venv/
 data/food.com-interaction/
 
 .claude/
+
+.DS_Store
